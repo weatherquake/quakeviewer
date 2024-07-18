@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuakeViewer</title>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            font-size: 30px;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        #reload {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            cursor: pointer;
+        }
+        #version {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            font-size: 10px;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div id="quake-info"></div>
+    <img id="reload" src="reload.png" alt="Reload" width="50" height="50" onclick="manualFetchQuakeData()">
+    <div id="version">QuakeViewer Version1.1</div>
+    <audio id="quake-sound" src="quakeinfo.mp3" preload="auto"></audio>
+
+    <script>
+        const quakeInfoDiv = document.getElementById('quake-info');
+        const quakeSound = document.getElementById('quake-sound');
+        let latestQuakeTime = null;
+
+        function fetchQuakeData(playSound = false) {
+            fetch('https://api.p2pquake.net/v2/history?codes=551')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length > 0) {
+                        const latestQuake = data[0];
+                        const newQuakeTime = new Date(latestQuake.time).getTime();
+                        if (newQuakeTime !== latestQuakeTime) {
+                            latestQuakeTime = newQuakeTime;
+                            displayQuakeInfo(latestQuake);
+                            if (playSound) {
+                                quakeSound.play();
+                            }
+                        }
+                    }
+                })
+                .catch(error => console.error('Error fetching quake data:', error));
+        }
+
+        function manualFetchQuakeData() {
+            fetchQuakeData(true);
+        }
+
+        function displayQuakeInfo(quake) {
+            const time = new Date(quake.time);
+            const formattedTime = `${time.getHours()}時${time.getMinutes()}分ごろ`;
+            const intensity = quake.earthquake.maxScale / 10;
+            const place = quake.earthquake.hypocenter.name;
+            const depth = quake.earthquake.hypocenter.depth;
+            const magnitude = quake.earthquake.hypocenter.magnitude;
+            
+            let quakeInfoHtml = `
+                ${formattedTime}、最大震度${intensity}を観測する地震がありました。<br>
+                震源地は${place}、震源の深さは${depth}km、地震の規模を示すマグニチュードは${magnitude}と推定されます。
+                <br><br>`;
+
+            quake.points.forEach(point => {
+                const areaIntensity = point.scale / 10;
+                quakeInfoHtml += `[震度${areaIntensity}] ${point.pref} ${point.addr}<br>`;
+            });
+
+            quakeInfoDiv.innerHTML = quakeInfoHtml;
+        }
+
+        function changeFontSize() {
+            const newSize = prompt('New Font Size: (px):');
+            if (newSize) {
+                document.body.style.fontSize = newSize + 'px';
+            }
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.ctrlKey && event.altKey && event.key === '0') {
+                changeFontSize();
+            }
+        });
+
+        setInterval(() => fetchQuakeData(false), 60000);
+        fetchQuakeData(false);
+    </script>
+</body>
+</html>
