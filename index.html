@@ -55,10 +55,10 @@
     </style>
 </head>
 <body>
-    <div id="quake-info"></div>
+    <div id="quake-info">地震情報がありません。</div>
     <img id="reload" src="reload.png" alt="Reload" width="50" height="50" onclick="manualFetchQuakeData()">
     <div id="version">
-        <span id="viewer-type">QuakeViewer Version1.1</span>
+        <span id="viewer-type">QuakeViewer Version1.2</span>
         <div id="morequake-warning"></div>
     </div>
     <audio id="quake-sound" src="quakeinfo.mp3" preload="auto"></audio>
@@ -66,12 +66,17 @@
 
     <script>
         const quakeInfoDiv = document.getElementById('quake-info');
-        const quakeSound = document.getElementById('quake-sound');
         const viewerTypeSpan = document.getElementById('viewer-type');
         const morequakeWarningDiv = document.getElementById('morequake-warning');
         const quakeSelectorDiv = document.getElementById('quake-selector');
         let latestQuakeTime = null;
         const urlParams = new URLSearchParams(window.location.search);
+        let showOkinawaOnly = urlParams.get('OKN') === 'yes';
+        let YomiageDemo = null;
+        let readingSpeed = 2; // デフォルトの読み上げ速度
+
+        const specialRegions = ['台湾', '沖縄', '南大東', '宮古島', '石垣島', '与那国島'];
+        const specialSources = ['奄美', 'トカラ', '種子島', 'フィリピン'];
 
         function fetchQuakeData(playSound = false) {
             fetch('https://api.p2pquake.net/v2/history?codes=551')
@@ -83,17 +88,20 @@
                         if (newQuakeTime !== latestQuakeTime) {
                             latestQuakeTime = newQuakeTime;
                             displayQuakeInfo(latestQuake);
-                            if (playSound) {
-                                quakeSound.play();
-                            }
+                            readQuakeInfo(latestQuake); // Read quake info automatically
                         }
+                    } else {
+                        quakeInfoDiv.innerHTML = "地震情報がありません。";
                     }
                 })
-                .catch(error => console.error('Error fetching quake data:', error));
+                .catch(error => {
+                    console.error('Error fetching quake data:', error);
+                    quakeInfoDiv.innerHTML = "地震情報がありません。";
+                });
         }
 
         function manualFetchQuakeData() {
-            fetchQuakeData(true);
+            fetchQuakeData(false);
         }
 
         function displayQuakeInfo(quake) {
@@ -104,66 +112,82 @@
             const depth = quake.earthquake.hypocenter.depth || '不明';
             const magnitude = quake.earthquake.hypocenter.magnitude || '不明';
 
-            let quakeInfoHtml = `
-                ${formattedTime}、最大震度${intensity}を観測する地震がありました。<br>
-                震源地は${place}、震源の深さは${depth}km、地震の規模を示すマグニチュードは${magnitude}と推定されます。
-                <br><br>`;
+            if (shouldShowQuake(quake, place, magnitude, depth)) {
+                let quakeInfoHtml = `
+                    ${formattedTime}、最大震度${intensity}を観測する地震がありました。<br>
+                    震源地は${place}、震源の深さは${depth}km、地震の規模を示すマグニチュードは${magnitude}と推定されます。
+                    <br><br>`;
 
-            const sortedPoints = quake.points.sort((a, b) => b.scale - a.scale);
+                const sortedPoints = quake.points.sort((a, b) => b.scale - a.scale);
 
-            sortedPoints.forEach(point => {
-                const areaIntensity = point.scale / 10;
-                quakeInfoHtml += `[震度${areaIntensity}] ${point.pref} ${point.addr}<br>`;
-            });
+                sortedPoints.forEach(point => {
+                    const areaIntensity = point.scale / 10;
+                    quakeInfoHtml += `[震度${areaIntensity}] ${point.pref} ${point.addr}<br>`;
+                });
 
-            quakeInfoDiv.innerHTML = quakeInfoHtml;
-        }
-
-        function changeFontSize() {
-            const newSize = prompt('New Font Size: (px):');
-            if (newSize) {
-                document.body.style.fontSize = newSize + 'px';
+                quakeInfoDiv.innerHTML = quakeInfoHtml;
             }
         }
 
-        function showPastQuakes() {
-            fetch('https://api.p2pquake.net/v2/history?codes=551')
-                .then(response => response.json())
-                .then(data => {
-                    let pastQuakeInfoHtml = '';
-                    data.forEach(quake => {
-                        const time = new Date(quake.time);
-                        const formattedTime = `${time.getFullYear()}年${time.getMonth() + 1}月${time.getDate()}日 ${time.getHours()}時${time.getMinutes()}分ごろ`;
-                        const intensity = quake.earthquake.maxScale / 10;
-                        const place = quake.earthquake.hypocenter.name || '不明';
-                        const depth = quake.earthquake.hypocenter.depth || '不明';
-                        const magnitude = quake.earthquake.hypocenter.magnitude || '不明';
-
-                        pastQuakeInfoHtml += `
-                            ${formattedTime}、最大震度${intensity}を観測する地震がありました。<br>
-                            震源地は${place}、震源の深さは${depth}km、地震の規模を示すマグニチュードは${magnitude}と推定されます。
-                            <br><br>`;
-                    });
-                    quakeInfoDiv.innerHTML = pastQuakeInfoHtml;
-                })
-                .catch(error => console.error('Error fetching past quake data:', error));
+        function shouldShowQuake(quake, place, magnitude, depth) {
+            if (!showOkinawaOnly) return true;
+            const mag = parseFloat(magnitude);
+            const dep = parseFloat(depth);
+            return (
+                (specialRegions.includes(place) || quake.points.some(p => p.pref.includes('沖縄'))) ||
+                (mag >= 6.5 && dep <= 50 && specialSources.some(src => place.includes(src)))
+            );
         }
 
-        document.addEventListener('keydown', function(event) {
-            if (event.ctrlKey && event.altKey && event.key === '0') {
-                changeFontSize();
+        function readQuakeInfo(quake) {
+            const time = new Date(quake.time);
+            const formattedTime = `${time.getHours()}時${time.getMinutes()}分`;
+            const intensity = quake.earthquake.maxScale / 10;
+            const place = quake.earthquake.hypocenter.name || '不明';
+            const depth = quake.earthquake.hypocenter.depth || '不明';
+            const magnitude = quake.earthquake.hypocenter.magnitude || '不明';
+
+            let message = '';
+
+            if (intensity && place === '不明' && depth === '不明' && magnitude === '不明') {
+                message = `震度${intensity}の地震情報が発表されました。`;
+            } else if (intensity && depth !== '不明' && magnitude !== '不明') {
+                message = `震度${intensity}の地震情報が発表されました。`;
+            } else {
+                message = `震源情報が発表されました。`;
+                quakeInfoDiv.innerHTML = quakeInfoDiv.innerHTML + '<div style="color: red;">震源情報のみ。震度は表示されません。</div>';
+            }
+
+            const utterance = new SpeechSynthesisUtterance(message);
+            utterance.lang = 'ja-JP';
+            utterance.rate = readingSpeed; // ここで読み上げ速度を使用する
+            window.speechSynthesis.speak(utterance);
+        }
+
+        fetchQuakeData(true);
+
+        // consoleで say="（読み上げする文字）" を入力すると読み上げる
+        Object.defineProperty(window, 'say', {
+            set: function(message) {
+                const utterance = new SpeechSynthesisUtterance(message);
+                utterance.lang = 'ja-JP';
+                utterance.rate = readingSpeed; // ここでも読み上げ速度を使用する
+                window.speechSynthesis.speak(utterance);
             }
         });
 
-        if (urlParams.get('MoreQuake') === 'view') {
-            viewerTypeSpan.innerHTML = 'MoreQuake Viewer';
-            morequakeWarningDiv.innerHTML = 'MoreQuake Viewerでは最新地震を受信できません。';
-            quakeSelectorDiv.style.display = 'block';
-            showPastQuakes();
-        } else {
-            setInterval(() => fetchQuakeData(false), 30000);
-            fetchQuakeData(false);
-        }
+        // consoleで speed=2 のように入力すると読み上げ速度を変更する
+        Object.defineProperty(window, 'speed', {
+            set: function(value) {
+                const newSpeed = parseFloat(value);
+                if (!isNaN(newSpeed) && newSpeed > 0) {
+                    readingSpeed = newSpeed;
+                    console.log(`読み上げ速度が ${readingSpeed} に設定されました。`);
+                } else {
+                    console.error('有効な読み上げ速度を入力してください。');
+                }
+            }
+        });
     </script>
 </body>
 </html>
